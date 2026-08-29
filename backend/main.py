@@ -15,11 +15,18 @@ app = FastAPI(
 # CORS Setup
 # NOTE: "*" cannot be combined with allow_credentials=True per the
 # CORS spec (browsers will reject it). Use an explicit origin list.
-# Add your deployed frontend origin(s) here before shipping.
+# allow_origin_regex additionally covers Vercel's per-deployment
+# preview URLs (e.g. krishisetu-git-branch-username.vercel.app),
+# which change on every branch/PR and can't be listed individually.
 # ---------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://krishisetu-chi.vercel.app",
+    ],
+    allow_origin_regex=r"https://krishisetu.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
