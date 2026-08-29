@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "./api.js";
+import Checkout from "./Checkout.jsx";
 import {
   Mic, MapPin, ShieldCheck, Truck, QrCode, Leaf, Wallet, ChevronRight,
   Search, CheckCircle2, Sprout, ArrowRight, ArrowUp, ArrowDown,
@@ -485,7 +486,7 @@ function FarmerFlow({ onPost }) {
 }
 
 /* ---------------- Marketplace ---------------- */
-function ListingCard({ listing, onBuy, buying }) {
+function ListingCard({ listing, onBuy }) {
   const [qty, setQty] = useState(Math.min(10, listing.qty));
 
   // Reset the selected quantity whenever the listing's available stock
@@ -530,12 +531,12 @@ function ListingCard({ listing, onBuy, buying }) {
       </div>
       <Button
         variant="dark"
-        icon={buying ? Loader2 : ShoppingCart}
-        disabled={buying || listing.qty < 1}
+        icon={ShoppingCart}
+        disabled={listing.qty < 1}
         onClick={() => onBuy(listing, qty)}
         className="mt-3 w-full"
       >
-        {buying ? "Placing order…" : listing.qty < 1 ? "Sold out" : `Buy ${qty} kg`}
+        {listing.qty < 1 ? "Sold out" : `Buy ${qty} kg`}
       </Button>
     </div>
   );
@@ -543,21 +544,7 @@ function ListingCard({ listing, onBuy, buying }) {
 
 function Marketplace({ listings, onBuy, loading, error }) {
   const [query, setQuery] = useState("");
-  const [buyingId, setBuyingId] = useState(null);
-  const [buyError, setBuyError] = useState(null);
   const filtered = listings.filter((l) => l.crop.toLowerCase().includes(query.toLowerCase()));
-
-  const handleBuyClick = async (listing, quantity) => {
-    setBuyingId(listing.id);
-    setBuyError(null);
-    try {
-      await onBuy(listing, quantity);
-    } catch (err) {
-      setBuyError(err.message || "Could not place order. Is the backend running?");
-    } finally {
-      setBuyingId(null);
-    }
-  };
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-14">
@@ -578,9 +565,9 @@ function Marketplace({ listings, onBuy, loading, error }) {
         </div>
       </div>
 
-      {(error || buyError) && (
+      {error && (
         <div className="mt-6 rounded-lg px-4 py-3 text-sm" style={{ background: THEME.brick, color: THEME.cream }}>
-          {buyError || error}
+          {error}
         </div>
       )}
 
@@ -591,7 +578,7 @@ function Marketplace({ listings, onBuy, loading, error }) {
       ) : (
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((l) => (
-            <ListingCard key={l.id} listing={l} onBuy={handleBuyClick} buying={buyingId === l.id} />
+            <ListingCard key={l.id} listing={l} onBuy={onBuy} />
           ))}
           {filtered.length === 0 && (
             <div className="col-span-full rounded-2xl p-8 text-center text-sm" style={{ background: THEME.paper2, color: THEME.ink }}>
@@ -743,6 +730,7 @@ export default function App() {
   const [listingsLoading, setListingsLoading] = useState(true);
   const [listingsError, setListingsError] = useState(null);
   const [activeOrder, setActiveOrder] = useState(null);
+  const [pendingCheckout, setPendingCheckout] = useState(null); // { listing, quantity }
 
   useEffect(() => {
     let cancelled = false;
@@ -780,32 +768,63 @@ export default function App() {
     setListings((prev) => [res.listing, ...prev]);
   }, []);
 
-  const handleBuy = useCallback(async (listing, quantity) => {
-    const res = await api.createOrder({
-      listing_id: listing.id,
-      quantity,
-      buyer_name: "Demo Buyer",
-    });
-    setActiveOrder({ ...res.order, emoji: listing.emoji });
-    setListings((prev) =>
-      prev
-        .map((l) => (l.id === listing.id ? { ...l, qty: l.qty - quantity } : l))
-        .filter((l) => l.qty > 0)
-    );
-    setView("tracking");
+  // "Buy now" no longer creates the order directly — it hands off to the
+  // Checkout page, which creates the order after the buyer picks a payment
+  // method and confirms.
+  const handleProceedToCheckout = useCallback((listing, quantity) => {
+    setPendingCheckout({ listing, quantity });
+    setView("checkout");
   }, []);
+
+  const handleCheckoutSuccess = useCallback(
+    (order) => {
+      const { listing, quantity } = pendingCheckout || {};
+      setActiveOrder({ ...order, emoji: listing?.emoji });
+      if (listing) {
+        setListings((prev) =>
+          prev
+            .map((l) => (l.id === listing.id ? { ...l, qty: l.qty - quantity } : l))
+            .filter((l) => l.qty > 0)
+        );
+      }
+      setPendingCheckout(null);
+      setView("tracking");
+    },
+    [pendingCheckout]
+  );
 
   return (
     <div className="ks-root min-h-screen" style={{ background: THEME.paper }}>
       <GlobalStyle />
-      <NavBar view={view} setView={setView} />
+      {view !== "checkout" && <NavBar view={view} setView={setView} />}
       {view === "landing" && <Landing setView={setView} />}
       {view === "farmer" && <FarmerFlow onPost={handlePost} />}
       {view === "marketplace" && (
-        <Marketplace listings={listings} onBuy={handleBuy} loading={listingsLoading} error={listingsError} />
+        <Marketplace
+          listings={listings}
+          onBuy={handleProceedToCheckout}
+          loading={listingsLoading}
+          error={listingsError}
+        />
+      )}
+      {view === "checkout" && pendingCheckout && (
+        <Checkout
+          product={{
+            id: pendingCheckout.listing.id,
+            name: pendingCheckout.listing.crop,
+            pricePerKg: pendingCheckout.listing.price,
+            seller: pendingCheckout.listing.farmer,
+          }}
+          quantity={pendingCheckout.quantity}
+          onSuccess={handleCheckoutSuccess}
+          onCancel={() => {
+            setPendingCheckout(null);
+            setView("marketplace");
+          }}
+        />
       )}
       {view === "tracking" && <OrderTracking order={activeOrder} onBack={() => setView("marketplace")} />}
-      <Footer />
+      {view !== "checkout" && <Footer />}
     </div>
   );
 }
