@@ -1,5 +1,18 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
+function extractErrorMessage(data, status) {
+  const detail = data?.detail;
+  if (!detail) return `Request failed with status ${status}`;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    // FastAPI validation errors: [{ loc, msg, type }, ...]
+    return detail
+      .map((d) => (typeof d === "string" ? d : d.msg || JSON.stringify(d)))
+      .join("; ");
+  }
+  return JSON.stringify(detail);
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -7,8 +20,7 @@ async function request(path, options = {}) {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const message = data?.detail || `Request failed with status ${res.status}`;
-    throw new Error(message);
+    throw new Error(extractErrorMessage(data, res.status));
   }
   return data;
 }
