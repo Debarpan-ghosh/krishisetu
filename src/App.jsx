@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "./api.js";
 import Checkout from "./Checkout.jsx";
 import {
-  Mic, MapPin, ShieldCheck, Truck, QrCode, Leaf, Wallet, ChevronRight,
+  Mic, MapPin, ShieldCheck, Truck, QrCode, Leaf, ChevronRight,
   Search, CheckCircle2, Sprout, ArrowRight, ArrowUp, ArrowDown,
   Globe2, Package, ShoppingCart, ArrowLeft, Loader2, BadgeCheck,
 } from "lucide-react";
@@ -109,12 +109,11 @@ const SEED_LISTINGS = [
 ];
 
 const ORDER_STEPS = [
-  { key: "placed", title: "Order placed", icon: Package, note: "Buyer confirms cart" },
-  { key: "escrow", title: "Payment held in escrow", icon: Wallet, note: "Funds locked, not yet released" },
-  { key: "accepted", title: "Farmer accepts & prepares", icon: Sprout, note: "Produce packed at farm-gate" },
-  { key: "transit", title: "Cold-chain pickup & transit", icon: Truck, note: "Live GPS route to buyer" },
-  { key: "delivered", title: "Delivered & QR verified", icon: QrCode, note: "Buyer scans to confirm quality" },
-  { key: "released", title: "Funds released to farmer", icon: ShieldCheck, note: "Escrow settles instantly" },
+  { key: "placed", title: "Order placed", icon: Package, note: "Payment received, order confirmed with the farmer" },
+  { key: "confirmed", title: "Order confirmed", icon: CheckCircle2, note: "Farmer has confirmed and is preparing your order" },
+  { key: "harvest-packed", title: "Harvest packed", icon: Sprout, note: "Produce harvested and packed at farm-gate" },
+  { key: "out-for-delivery", title: "Out for delivery", icon: Truck, note: "Cold-chain pickup, en route to you" },
+  { key: "delivered", title: "Delivered", icon: QrCode, note: "Scan the QR code on arrival to confirm receipt" },
 ];
 
 /* ---------------- Small building blocks ---------------- */
@@ -252,7 +251,7 @@ function Landing({ setView }) {
               </Button>
             </div>
             <div className="mt-8 flex items-center gap-4 text-xs" style={{ color: THEME.paper2 }}>
-              <Pill tone="leaf"><ShieldCheck size={12} /> Escrow-secured</Pill>
+              <Pill tone="leaf"><ShieldCheck size={12} /> Secure payments</Pill>
               <Pill tone="turmeric"><Mic size={12} /> Voice-first</Pill>
               <Pill tone="paper"><Truck size={12} /> Cold-chain tracked</Pill>
             </div>
@@ -278,8 +277,8 @@ function Landing({ setView }) {
           <div className="mt-8 grid gap-6 md:grid-cols-3">
             {[
               { icon: Mic, title: "Speak your listing", body: "A farmer taps the mic and says the crop, quantity and price in their own language — no typing required." },
-              { icon: ShoppingCart, title: "Buyer orders directly", body: "Urban retailers and shoppers browse verified local listings and pay into escrow at checkout." },
-              { icon: ShieldCheck, title: "Delivery releases funds", icon2: QrCode, body: "A QR scan on delivery confirms quality and instantly releases payment to the farmer's account." },
+              { icon: ShoppingCart, title: "Buyer orders directly", body: "Urban retailers and shoppers browse verified local listings and pay securely at checkout." },
+              { icon: ShieldCheck, title: "QR-verified delivery", icon2: QrCode, body: "A QR scan on delivery confirms the order was received in good condition, closing it out." },
             ].map((f) => (
               <div key={f.title} className="rounded-2xl p-6" style={{ background: THEME.paper }}>
                 <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full" style={{ background: THEME.leaf }}>
@@ -592,17 +591,18 @@ function Marketplace({ listings, onBuy, loading, error }) {
 }
 
 /* ---------------- Order tracking / escrow ---------------- */
-// Backend order states: escrow_locked -> in_transit -> qr_verified -> funds_released.
-// A real order arrives already in escrow_locked, so the first two UI steps
-// (placed, escrow) are shown as done immediately; only steps 2-5 trigger
-// real API calls against that state machine.
+// Backend order states: placed -> confirmed -> harvest-packed ->
+// out-for-delivery -> delivered. A real order arrives already "placed"
+// (payment captured up front), so the first UI step is shown as done
+// immediately; the remaining steps trigger real API calls against that
+// state machine, with a QR check required at the final "delivered" step.
 function OrderTracking({ order, onBack }) {
-  const [stepIndex, setStepIndex] = useState(order ? 2 : ORDER_STEPS.length - 1);
+  const [stepIndex, setStepIndex] = useState(order ? 1 : ORDER_STEPS.length - 1);
   const [advancing, setAdvancing] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    setStepIndex(order ? 2 : ORDER_STEPS.length - 1);
+    setStepIndex(order ? 1 : ORDER_STEPS.length - 1);
     setError(null);
   }, [order]);
 
@@ -611,16 +611,15 @@ function OrderTracking({ order, onBack }) {
     setAdvancing(true);
     setError(null);
     try {
-      if (stepIndex === 2) {
-        await api.updateOrderStatus(order.id, { status: "in_transit" });
+      if (stepIndex === 1) {
+        await api.updateOrderStatus(order.id, { status: "confirmed" });
+      } else if (stepIndex === 2) {
+        await api.updateOrderStatus(order.id, { status: "harvest-packed" });
       } else if (stepIndex === 3) {
-        await api.updateOrderStatus(order.id, {
-          status: "qr_verified",
-          qr_verification_code: order.qr_code,
-        });
+        await api.updateOrderStatus(order.id, { status: "out-for-delivery" });
       } else if (stepIndex === 4) {
         await api.updateOrderStatus(order.id, {
-          status: "funds_released",
+          status: "delivered",
           qr_verification_code: order.qr_code,
         });
       }
@@ -638,7 +637,7 @@ function OrderTracking({ order, onBack }) {
         <Package size={36} className="mx-auto" style={{ color: THEME.leaf }} />
         <h2 className="ks-display mt-4 text-2xl font-semibold" style={{ color: THEME.ink }}>No active order yet</h2>
         <p className="mt-2 text-sm" style={{ color: THEME.ink, opacity: 0.7 }}>
-          Buy something from the marketplace to see the escrow-to-delivery timeline in action.
+          Buy something from the marketplace to see the order-to-delivery timeline in action.
         </p>
       </div>
     );
@@ -651,12 +650,12 @@ function OrderTracking({ order, onBack }) {
       <button onClick={onBack} className="ks-focus mb-6 flex items-center gap-1 text-sm font-medium" style={{ color: THEME.leafDark }}>
         <ArrowLeft size={14} /> Back to marketplace
       </button>
-      <SectionEyebrow>Order · Escrow protected</SectionEyebrow>
+      <SectionEyebrow>Order · Payment confirmed</SectionEyebrow>
       <h1 className="ks-display text-3xl font-semibold" style={{ color: THEME.ink }}>
         {order.emoji} {order.quantity} kg {order.crop} from {order.farmer}
       </h1>
       <p className="mt-1 text-sm" style={{ color: THEME.ink, opacity: 0.7 }}>
-        Total: <span className="ks-mono font-semibold">₹{order.total_amount}</span> · held in escrow until delivery is verified.
+        Total: <span className="ks-mono font-semibold">₹{order.total_amount}</span> · paid, order confirmed with the farmer.
       </p>
 
       <div className="mt-8 rounded-2xl p-6" style={{ background: THEME.soil }}>
@@ -703,7 +702,7 @@ function OrderTracking({ order, onBack }) {
               {advancing ? "Updating…" : "Simulate next step"}
             </Button>
           ) : (
-            <Pill tone="leaf"><CheckCircle2 size={14} /> Funds released — order complete</Pill>
+            <Pill tone="leaf"><CheckCircle2 size={14} /> Delivered — order complete</Pill>
           )}
         </div>
       </div>

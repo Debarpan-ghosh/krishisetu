@@ -112,14 +112,19 @@ class VoiceListingRequest(BaseModel):
 
 # ---------------------------------------------------------
 # Order state machine
-# Forward-only transitions: prevents skipping straight to
-# funds_released, and prevents resurrecting a cancelled order.
+# Forward-only transitions: prevents skipping stages, and
+# prevents resurrecting a cancelled order. Payment is captured
+# up front at placement (payment_status="paid"), so this flow
+# tracks fulfillment stages, not fund release.
 # ---------------------------------------------------------
+STATUS_FLOW = ["placed", "confirmed", "harvest-packed", "out-for-delivery", "delivered"]
+
 ALLOWED_TRANSITIONS = {
-    "escrow_locked": {"in_transit", "cancelled"},
-    "in_transit": {"qr_verified", "cancelled"},
-    "qr_verified": {"funds_released"},
-    "funds_released": set(),
+    "placed": {"confirmed", "cancelled"},
+    "confirmed": {"harvest-packed", "cancelled"},
+    "harvest-packed": {"out-for-delivery"},
+    "out-for-delivery": {"delivered"},
+    "delivered": set(),
     "cancelled": set(),
 }
 
@@ -166,7 +171,7 @@ def delete_listing(listing_id: int):
     return {"success": True, "message": "Listing removed"}
 
 # ---------------------------------------------------------
-# Order Processing & Smart Escrow Payouts
+# Order Processing & Fulfillment Tracking
 # ---------------------------------------------------------
 @app.get("/api/orders")
 def list_orders():
@@ -182,11 +187,11 @@ def get_order(order_id: str):
 def _place_order(listing_id: int, quantity: float, buyer_name: str, payment_method: str) -> dict:
     """
     Shared order-placement logic: validates payment method and stock,
-    decrements inventory, and locks the order in escrow. Used by both
-    POST /api/orders and POST /api/payments/process so there's one
-    source of truth for how an order gets created — the total is always
-    computed server-side from the listing's real price, never trusted
-    from the caller.
+    decrements inventory, and places the order with payment captured
+    up front (payment_status="paid"). Used by both POST /api/orders and
+    POST /api/payments/process so there's one source of truth for how
+    an order gets created — the total is always computed server-side
+    from the listing's real price, never trusted from the caller.
     """
     if payment_method not in ALLOWED_PAYMENT_METHODS:
         raise HTTPException(status_code=400, detail=f"Unsupported payment method. Allowed: {sorted(ALLOWED_PAYMENT_METHODS)}")
@@ -213,8 +218,8 @@ def _place_order(listing_id: int, quantity: float, buyer_name: str, payment_meth
         "buyer_name": buyer_name,
         "farmer": listing["farmer"],
         "payment_method": payment_method,
-        "status": "escrow_locked",
-        "escrow_guarantee": True,
+        "payment_status": "paid",
+        "status": STATUS_FLOW[0],
         "qr_code": qr_code,
         "created_at": datetime.now().isoformat(),
     }
@@ -226,7 +231,7 @@ def create_order(data: OrderCreate):
     order = _place_order(data.listing_id, data.quantity, data.buyer_name, data.payment_method)
     return {
         "success": True,
-        "message": "Funds held in Smart Escrow. Dispatch pending.",
+        "message": "Order placed and payment received.",
         "order": order
     }
 
@@ -239,7 +244,7 @@ def create_order(data: OrderCreate):
 # request/response shape can stay the same so the frontend doesn't need
 # to change. Unlike a bare Order-model version of this endpoint, this
 # reuses _place_order() so a "payment" here still goes through the same
-# real stock check and escrow lock as the rest of the marketplace,
+# real stock check as the rest of the marketplace,
 # rather than creating a disconnected record.
 # ---------------------------------------------------------
 @app.post("/api/payments/process", status_code=201)
@@ -268,11 +273,11 @@ def update_order_status(order_id: str, data: OrderStatusUpdate):
                    f"Allowed next states: {sorted(allowed_next) or 'none (terminal state)'}"
         )
 
-    if data.status == "funds_released":
+    if data.status == "delivered":
         if data.qr_verification_code != order["qr_code"]:
-            raise HTTPException(status_code=403, detail="QR Code verification failed. Cannot release escrow.")
-        order["status"] = "funds_released"
-        return {"success": True, "message": "Escrow released directly to farmer account.", "order": order}
+            raise HTTPException(status_code=403, detail="QR code verification failed. Cannot confirm delivery.")
+        order["status"] = "delivered"
+        return {"success": True, "message": "Delivery confirmed via QR scan.", "order": order}
 
     if data.status == "cancelled":
         # Restore stock back to the originating listing, if it still exists.
