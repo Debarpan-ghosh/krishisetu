@@ -485,17 +485,73 @@ function FarmerFlow({ onPost }) {
 }
 
 /* ---------------- Marketplace ---------------- */
+function ListingCard({ listing, onBuy, buying }) {
+  const [qty, setQty] = useState(Math.min(10, listing.qty));
+
+  // Reset the selected quantity whenever the listing's available stock
+  // changes (e.g. after a purchase reduces it) — keeps it clamped to
+  // whatever's still in stock, defaulting to a partial amount rather
+  // than the whole batch.
+  useEffect(() => {
+    setQty((prev) => Math.min(prev, listing.qty) || Math.min(10, listing.qty));
+  }, [listing.qty]);
+
+  const clampQty = (val) => {
+    const n = Number(val) || 1;
+    return Math.max(1, Math.min(listing.qty, n));
+  };
+
+  return (
+    <div className="flex flex-col rounded-2xl p-5" style={{ background: THEME.paper2 }}>
+      <div className="flex items-start justify-between">
+        <div className="text-3xl">{listing.emoji}</div>
+        <Pill tone="leaf">{listing.freshness}</Pill>
+      </div>
+      <div className="ks-display mt-3 text-lg font-semibold" style={{ color: THEME.ink }}>{listing.crop}</div>
+      <div className="mt-1 text-xs" style={{ color: THEME.ink, opacity: 0.7 }}>{listing.farmer} · {listing.village}</div>
+      <div className="mt-1 flex items-center gap-1 text-xs" style={{ color: THEME.ink, opacity: 0.6 }}>
+        <MapPin size={12} /> {listing.distance} away · {listing.qty} kg available
+      </div>
+      <div className="mt-4 flex items-center justify-between">
+        <div className="ks-mono text-xl font-semibold" style={{ color: THEME.brick }}>₹{listing.price}<span className="text-sm">/kg</span></div>
+        <div className="ks-focus flex items-center rounded-lg" style={{ background: THEME.paper }}>
+          <input
+            type="number"
+            min={1}
+            max={listing.qty}
+            value={qty}
+            onChange={(e) => setQty(clampQty(e.target.value))}
+            className="w-14 bg-transparent px-2 py-1 text-sm outline-none"
+            style={{ color: THEME.ink }}
+            aria-label={`Quantity of ${listing.crop} in kg`}
+          />
+          <span className="pr-2 text-xs" style={{ color: THEME.ink, opacity: 0.6 }}>kg</span>
+        </div>
+      </div>
+      <Button
+        variant="dark"
+        icon={buying ? Loader2 : ShoppingCart}
+        disabled={buying || listing.qty < 1}
+        onClick={() => onBuy(listing, qty)}
+        className="mt-3 w-full"
+      >
+        {buying ? "Placing order…" : listing.qty < 1 ? "Sold out" : `Buy ${qty} kg`}
+      </Button>
+    </div>
+  );
+}
+
 function Marketplace({ listings, onBuy, loading, error }) {
   const [query, setQuery] = useState("");
   const [buyingId, setBuyingId] = useState(null);
   const [buyError, setBuyError] = useState(null);
   const filtered = listings.filter((l) => l.crop.toLowerCase().includes(query.toLowerCase()));
 
-  const handleBuyClick = async (listing) => {
+  const handleBuyClick = async (listing, quantity) => {
     setBuyingId(listing.id);
     setBuyError(null);
     try {
-      await onBuy(listing);
+      await onBuy(listing, quantity);
     } catch (err) {
       setBuyError(err.message || "Could not place order. Is the backend running?");
     } finally {
@@ -535,28 +591,7 @@ function Marketplace({ listings, onBuy, loading, error }) {
       ) : (
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((l) => (
-            <div key={l.id} className="flex flex-col rounded-2xl p-5" style={{ background: THEME.paper2 }}>
-              <div className="flex items-start justify-between">
-                <div className="text-3xl">{l.emoji}</div>
-                <Pill tone="leaf">{l.freshness}</Pill>
-              </div>
-              <div className="ks-display mt-3 text-lg font-semibold" style={{ color: THEME.ink }}>{l.crop}</div>
-              <div className="mt-1 text-xs" style={{ color: THEME.ink, opacity: 0.7 }}>{l.farmer} · {l.village}</div>
-              <div className="mt-1 flex items-center gap-1 text-xs" style={{ color: THEME.ink, opacity: 0.6 }}>
-                <MapPin size={12} /> {l.distance} away · {l.qty} kg available
-              </div>
-              <div className="mt-4 flex items-center justify-between">
-                <div className="ks-mono text-xl font-semibold" style={{ color: THEME.brick }}>₹{l.price}<span className="text-sm">/kg</span></div>
-                <Button
-                  variant="dark"
-                  icon={buyingId === l.id ? Loader2 : ShoppingCart}
-                  disabled={buyingId === l.id}
-                  onClick={() => handleBuyClick(l)}
-                >
-                  {buyingId === l.id ? "Placing order…" : "Buy now"}
-                </Button>
-              </div>
-            </div>
+            <ListingCard key={l.id} listing={l} onBuy={handleBuyClick} buying={buyingId === l.id} />
           ))}
           {filtered.length === 0 && (
             <div className="col-span-full rounded-2xl p-8 text-center text-sm" style={{ background: THEME.paper2, color: THEME.ink }}>
@@ -745,14 +780,18 @@ export default function App() {
     setListings((prev) => [res.listing, ...prev]);
   }, []);
 
-  const handleBuy = useCallback(async (listing) => {
+  const handleBuy = useCallback(async (listing, quantity) => {
     const res = await api.createOrder({
       listing_id: listing.id,
-      quantity: listing.qty,
+      quantity,
       buyer_name: "Demo Buyer",
     });
     setActiveOrder({ ...res.order, emoji: listing.emoji });
-    setListings((prev) => prev.filter((l) => l.id !== listing.id));
+    setListings((prev) =>
+      prev
+        .map((l) => (l.id === listing.id ? { ...l, qty: l.qty - quantity } : l))
+        .filter((l) => l.qty > 0)
+    );
     setView("tracking");
   }, []);
 
