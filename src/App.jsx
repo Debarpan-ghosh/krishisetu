@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Mic, MapPin, ShieldCheck, Truck, QrCode, Leaf, Wallet, ChevronRight,
-  Search, X, CheckCircle2, Sprout, ArrowRight, ArrowUp, ArrowDown,
-  Globe2, Star, Package, ShoppingCart, ArrowLeft, Loader2, BadgeCheck,
+  Search, CheckCircle2, Sprout, ArrowRight, ArrowUp, ArrowDown,
+  Globe2, Package, ShoppingCart, ArrowLeft, Loader2, BadgeCheck,
 } from "lucide-react";
 
 /* ============================================================
@@ -242,11 +242,11 @@ function Landing({ setView }) {
               with prices set in the open and payments released only after verified delivery.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button variant="primary" icon={Mic} onClick={() => setView("farmer")}>I'm a Farmer — List Produce</Button>
+              <Button variant="primary" icon={Mic} onClick={() => setView("farmer")}>I&apos;m a Farmer — List Produce</Button>
               <Button variant="ghost" icon={ShoppingCart} onClick={() => setView("marketplace")}
                 className="border" >
                 <span style={{ border: `1.5px solid ${THEME.paper2}`, position: "absolute" }} />
-                I'm a Buyer — Browse Market
+                I&apos;m a Buyer — Browse Market
               </Button>
             </div>
             <div className="mt-8 flex items-center gap-4 text-xs" style={{ color: THEME.paper2 }}>
@@ -307,7 +307,7 @@ function HeroBoard() {
   return (
     <div className="relative rounded-2xl p-6" style={{ background: THEME.soil2, border: `1px solid ${THEME.soil3}` }}>
       <div className="ks-mono mb-4 flex items-center justify-between text-xs" style={{ color: THEME.paper2 }}>
-        <span>TODAY'S RATE BOARD</span>
+        <span>TODAY&apos;S RATE BOARD</span>
         <span className="flex items-center gap-1" style={{ color: THEME.leafLight }}>
           <span className="h-2 w-2 rounded-full" style={{ background: THEME.leafLight }} /> LIVE
         </span>
@@ -376,7 +376,7 @@ function FarmerFlow({ onPost }) {
       <SectionEyebrow>Farmer · Voice-first listing</SectionEyebrow>
       <h1 className="ks-display text-3xl font-semibold" style={{ color: THEME.ink }}>Speak your produce onto the market</h1>
       <p className="mt-2 max-w-xl text-sm" style={{ color: THEME.ink, opacity: 0.7 }}>
-        No typing, no forms. Choose your language and describe what you're selling — the assistant builds the listing for you.
+        No typing, no forms. Choose your language and describe what you&apos;re selling — the assistant builds the listing for you.
       </p>
 
       <div className="mt-8 flex gap-2">
@@ -410,7 +410,7 @@ function FarmerFlow({ onPost }) {
             {stage === "idle" && "Tap to speak your listing"}
             {stage === "listening" && `Listening in ${lang.name}…`}
             {stage === "processing" && "Converting speech to a structured listing…"}
-            {(stage === "ready" || stage === "posted") && "Here's what I heard"}
+            {(stage === "ready" || stage === "posted") && "Here&apos;s what I heard"}
           </div>
 
           {stage === "listening" && (
@@ -425,7 +425,7 @@ function FarmerFlow({ onPost }) {
 
           {transcript && (stage === "listening" || stage === "processing" || stage === "ready" || stage === "posted") && (
             <div className="ks-display mt-5 max-w-md rounded-lg px-4 py-3 text-lg" style={{ background: THEME.soil2, color: THEME.paper }}>
-              "{transcript}"
+              &quot;{transcript}&quot;
             </div>
           )}
         </div>
@@ -442,7 +442,7 @@ function FarmerFlow({ onPost }) {
               </div>
               <div className="text-right">
                 <div className="ks-mono text-2xl font-semibold" style={{ color: THEME.brick }}>₹{listing.suggestedPrice}<span className="text-sm">/kg</span></div>
-                <div className="text-xs" style={{ color: THEME.ink, opacity: 0.6 }}>suggested from today's mandi rate</div>
+                <div className="text-xs" style={{ color: THEME.ink, opacity: 0.6 }}>suggested from today&apos;s mandi rate</div>
               </div>
             </div>
             <div className="mt-5 flex flex-wrap gap-3">
@@ -509,7 +509,7 @@ function Marketplace({ listings, onBuy }) {
         ))}
         {filtered.length === 0 && (
           <div className="col-span-full rounded-2xl p-8 text-center text-sm" style={{ background: THEME.paper2, color: THEME.ink }}>
-            No produce matches "{query}" right now.
+            No produce matches &quot;{query}&quot; right now.
           </div>
         )}
       </div>
@@ -524,7 +524,8 @@ function OrderTracking({ order, onBack }) {
 
   useEffect(() => {
     setStepIndex(order ? 0 : ORDER_STEPS.length - 1);
-    return () => timers.current.forEach(clearTimeout);
+    const activeTimers = timers.current;
+    return () => activeTimers.forEach(clearTimeout);
   }, [order]);
 
   const advance = () => setStepIndex((i) => Math.min(i + 1, ORDER_STEPS.length - 1));
