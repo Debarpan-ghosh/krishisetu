@@ -77,7 +77,7 @@ cold_nodes = [
 # ---------------------------------------------------------
 # Pydantic Schemas
 # ---------------------------------------------------------
-ALLOWED_PAYMENT_METHODS = {"Escrow_UPI"}  # DeFi path dropped per Impact & Benefits slide
+ALLOWED_PAYMENT_METHODS = {"Escrow_UPI", "upi", "card", "netbanking", "cod"}
 
 class ListingCreate(BaseModel):
     crop: str
@@ -94,6 +94,12 @@ class OrderCreate(BaseModel):
     quantity: float = Field(..., gt=0)
     buyer_name: str
     payment_method: str = "Escrow_UPI"
+
+class PaymentProcessRequest(BaseModel):
+    listing_id: int
+    quantity: float = Field(..., gt=0)
+    method: str
+    buyer_name: str = "Demo Buyer"
 
 class OrderStatusUpdate(BaseModel):
     status: str
@@ -173,44 +179,77 @@ def get_order(order_id: str):
         raise HTTPException(status_code=404, detail="Order not found")
     return {"success": True, "order": order}
 
-@app.post("/api/orders", status_code=201)
-def create_order(data: OrderCreate):
-    if data.payment_method not in ALLOWED_PAYMENT_METHODS:
-        raise HTTPException(status_code=400, detail=f"Unsupported payment_method. Allowed: {ALLOWED_PAYMENT_METHODS}")
+def _place_order(listing_id: int, quantity: float, buyer_name: str, payment_method: str) -> dict:
+    """
+    Shared order-placement logic: validates payment method and stock,
+    decrements inventory, and locks the order in escrow. Used by both
+    POST /api/orders and POST /api/payments/process so there's one
+    source of truth for how an order gets created — the total is always
+    computed server-side from the listing's real price, never trusted
+    from the caller.
+    """
+    if payment_method not in ALLOWED_PAYMENT_METHODS:
+        raise HTTPException(status_code=400, detail=f"Unsupported payment method. Allowed: {sorted(ALLOWED_PAYMENT_METHODS)}")
 
-    listing = next((item for item in listings if item["id"] == data.listing_id), None)
+    listing = next((item for item in listings if item["id"] == listing_id), None)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
-    if data.quantity > listing["qty"]:
+    if quantity > listing["qty"]:
         raise HTTPException(status_code=400, detail="Insufficient stock available")
 
-    listing["qty"] -= data.quantity
+    listing["qty"] -= quantity
 
     order_id = f"ORD-{uuid.uuid4().hex[:6].upper()}"
-    total_amount = round(data.quantity * listing["price"], 2)
+    total_amount = round(quantity * listing["price"], 2)
     qr_code = f"QR-VERIFY-{order_id}"
 
     order = {
         "id": order_id,
         "listing_id": listing["id"],
         "crop": listing["crop"],
-        "quantity": data.quantity,
+        "quantity": quantity,
         "price_per_kg": listing["price"],
         "total_amount": total_amount,
-        "buyer_name": data.buyer_name,
+        "buyer_name": buyer_name,
         "farmer": listing["farmer"],
-        "payment_method": data.payment_method,
+        "payment_method": payment_method,
         "status": "escrow_locked",
         "escrow_guarantee": True,
         "qr_code": qr_code,
         "created_at": datetime.now().isoformat(),
     }
     orders[order_id] = order
+    return order
 
+@app.post("/api/orders", status_code=201)
+def create_order(data: OrderCreate):
+    order = _place_order(data.listing_id, data.quantity, data.buyer_name, data.payment_method)
     return {
         "success": True,
         "message": "Funds held in Smart Escrow. Dispatch pending.",
         "order": order
+    }
+
+# ---------------------------------------------------------
+# Payment Processing (Checkout page)
+# NOTE: This is a DEMO simulation only — no real payment gateway is
+# called. Cash on Delivery skips "payment" entirely; every other method
+# is treated as an instant success for the demo. Swap the body of this
+# handler for a real Razorpay/Stripe/Cashfree call post-hackathon — the
+# request/response shape can stay the same so the frontend doesn't need
+# to change. Unlike a bare Order-model version of this endpoint, this
+# reuses _place_order() so a "payment" here still goes through the same
+# real stock check and escrow lock as the rest of the marketplace,
+# rather than creating a disconnected record.
+# ---------------------------------------------------------
+@app.post("/api/payments/process", status_code=201)
+def process_payment(data: PaymentProcessRequest):
+    order = _place_order(data.listing_id, data.quantity, data.buyer_name, data.method)
+    return {
+        "success": True,
+        "message": "Payment successful.",
+        "orderId": order["id"],
+        "order": order,
     }
 
 @app.patch("/api/orders/{order_id}/status")

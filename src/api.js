@@ -40,6 +40,12 @@ export const api = {
       body: JSON.stringify(order),
     }),
 
+  processPayment: (payload) =>
+    request("/api/payments/process", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   updateOrderStatus: (orderId, statusUpdate) =>
     request(`/api/orders/${orderId}/status`, {
       method: "PATCH",

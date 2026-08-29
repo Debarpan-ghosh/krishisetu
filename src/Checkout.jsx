@@ -54,12 +54,12 @@ export default function Checkout({ product, quantity = 1, onSuccess, onCancel })
     setPaying(true);
     try {
       // The payment-method selection above is a demo simulation (no real
-      // gateway call). What actually happens here is a real order against
-      // your FastAPI backend, which locks the amount in escrow exactly like
-      // the marketplace's direct "Buy now" flow did before checkout existed.
-      const res = await api.createOrder({
+      // gateway call) — but this hits a real FastAPI endpoint that locks
+      // the order in escrow exactly like the rest of the marketplace.
+      const res = await api.processPayment({
         listing_id: resolvedProduct.id,
         quantity,
+        method,
         buyer_name: "Demo Buyer",
       });
 
