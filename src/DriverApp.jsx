@@ -293,15 +293,66 @@ function RouteRow({ icon: Icon, color, label, value }) {
   );
 }
 
+// ---------------------------------------------------------------
+// Real live GPS via the browser's Geolocation API — no native app
+// needed. watchPosition keeps updating as the driver moves; the
+// watch is cleared on unmount (i.e. when the trip card stops
+// rendering) to stop draining battery/location once it's not needed.
+// ---------------------------------------------------------------
+function useLiveLocation() {
+  const [coords, setCoords] = useState(null);
+  const [status, setStatus] = useState("requesting"); // requesting | active | denied | unsupported | error
+
+  useEffect(() => {
+    if (!("geolocation" in navigator)) {
+      setStatus("unsupported");
+      return;
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setStatus("active");
+        setCoords({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        });
+      },
+      (err) => {
+        setStatus(err.code === err.PERMISSION_DENIED ? "denied" : "error");
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
+  return { coords, status };
+}
+
 function TripCard({ stage, onScanPickup, onScanDelivery }) {
   const atPickup = stage === "accepted";
+  const { coords, status } = useLiveLocation();
+
+  const locationLabel = {
+    requesting: "Requesting GPS access…",
+    active: coords
+      ? `Live: ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`
+      : "Live GPS tracking active",
+    denied: "Location permission denied",
+    unsupported: "GPS not supported on this device",
+    error: "GPS signal unavailable",
+  }[status];
+
   return (
     <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
-      {/* Map placeholder */}
+      {/* Map placeholder — the pin/road graphic is still a mock, but
+          the label below it now reflects a real device GPS reading. */}
       <div className="h-36 bg-neutral-200 relative flex items-center justify-center">
-        <Navigation size={26} className="text-neutral-500" />
-        <span className="absolute bottom-2 left-2 text-[10px] bg-white/90 px-2 py-0.5 rounded-full font-medium text-neutral-600">
-          Live GPS tracking active
+        <Navigation size={26} className={`text-neutral-500 ${status === "active" ? "" : "opacity-50"}`} />
+        <span className="absolute bottom-2 left-2 text-[10px] bg-white/90 px-2 py-0.5 rounded-full font-medium text-neutral-600 flex items-center gap-1">
+          {status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+          {locationLabel}
         </span>
       </div>
 
