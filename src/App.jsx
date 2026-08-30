@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "./api.js";
 import Checkout from "./Checkout.jsx";
+import DriverApp from "./DriverApp.jsx";
 import {
   Mic, MapPin, ShieldCheck, Truck, QrCode, Leaf, ChevronRight,
   Search, CheckCircle2, Sprout, ArrowRight, ArrowUp, ArrowDown,
@@ -194,6 +195,7 @@ function NavBar({ view, setView }) {
     { key: "farmer", label: "Sell Produce" },
     { key: "marketplace", label: "Marketplace" },
     { key: "tracking", label: "Track Order" },
+    { key: "driver", label: "Driver App" },
   ];
   return (
     <div className="sticky top-0 z-30" style={{ background: THEME.soil }}>
@@ -823,6 +825,7 @@ export default function App() {
         />
       )}
       {view === "tracking" && <OrderTracking order={activeOrder} onBack={() => setView("marketplace")} />}
+      {view === "driver" && <DriverApp />}
       {view !== "checkout" && <Footer />}
     </div>
   );
