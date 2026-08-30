@@ -29,8 +29,10 @@ const MOCK_JOB = {
   id: "JOB-4821",
   farmer: "Rakesh Mandal",
   farmerLocation: "Hooghly, West Bengal",
+  farmerCoords: { lat: 22.9100, lng: 88.3900 },
   buyer: "Kolkata Fresh Mart",
   buyerLocation: "Park Street, Kolkata",
+  buyerCoords: { lat: 22.5535, lng: 88.3526 },
   produce: "Tomatoes",
   quantity: "200 kg",
   distance: "18.4 km",
@@ -293,11 +295,26 @@ function RouteRow({ icon: Icon, color, label, value }) {
   );
 }
 
+// Distance between two lat/lng points, in km (Haversine formula) —
+// the JS equivalent of Android's Location.distanceBetween() used in
+// the native version of this feature.
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // ---------------------------------------------------------------
 // Real live GPS via the browser's Geolocation API — no native app
 // needed. watchPosition keeps updating as the driver moves; the
 // watch is cleared on unmount (i.e. when the trip card stops
 // rendering) to stop draining battery/location once it's not needed.
+// Also captures speed (m/s, same unit Android's Location.speed uses)
+// where the device provides it.
 // ---------------------------------------------------------------
 function useLiveLocation() {
   const [coords, setCoords] = useState(null);
@@ -316,6 +333,7 @@ function useLiveLocation() {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy,
+          speed: pos.coords.speed, // m/s, or null if the device can't provide it
         });
       },
       (err) => {
@@ -333,6 +351,7 @@ function useLiveLocation() {
 function TripCard({ stage, onScanPickup, onScanDelivery }) {
   const atPickup = stage === "accepted";
   const { coords, status } = useLiveLocation();
+  const destination = atPickup ? MOCK_JOB.farmerCoords : MOCK_JOB.buyerCoords;
 
   const locationLabel = {
     requesting: "Requesting GPS access…",
@@ -344,6 +363,18 @@ function TripCard({ stage, onScanPickup, onScanDelivery }) {
     error: "GPS signal unavailable",
   }[status];
 
+  // Real telemetry computed from the device's actual position, the
+  // same distance/speed/ETA math as the native version — just run in
+  // the browser against navigator.geolocation instead of FusedLocationProviderClient.
+  const liveDistanceKm =
+    status === "active" && coords ? distanceKm(coords.lat, coords.lng, destination.lat, destination.lng) : null;
+  const liveSpeedKmh = coords?.speed != null ? coords.speed * 3.6 : null;
+  const liveEtaMin =
+    liveDistanceKm != null && liveSpeedKmh != null && liveSpeedKmh > 1
+      ? Math.round((liveDistanceKm / liveSpeedKmh) * 60)
+      : null;
+  const hasArrived = liveDistanceKm != null && liveDistanceKm < 0.1;
+
   return (
     <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
       {/* Map placeholder — the pin/road graphic is still a mock, but
@@ -354,6 +385,11 @@ function TripCard({ stage, onScanPickup, onScanDelivery }) {
           {status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
           {locationLabel}
         </span>
+        {hasArrived && (
+          <span className="absolute top-2 right-2 text-[10px] font-semibold bg-emerald-600 text-white px-2 py-0.5 rounded-full">
+            Arrived
+          </span>
+        )}
       </div>
 
       <div className="p-4">
@@ -367,11 +403,21 @@ function TripCard({ stage, onScanPickup, onScanDelivery }) {
           {atPickup ? MOCK_JOB.farmerLocation : MOCK_JOB.buyerLocation}
         </p>
 
+        {/* Live telemetry — falls back to the static estimate until a
+            real GPS fix (and, for speed/ETA, actual movement) is available. */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <TelemetryStat
+            label="Distance"
+            value={liveDistanceKm != null ? `${liveDistanceKm.toFixed(2)} km` : MOCK_JOB.distance}
+          />
+          <TelemetryStat label="Speed" value={liveSpeedKmh != null ? `${liveSpeedKmh.toFixed(1)} km/h` : "—"} />
+          <TelemetryStat label="ETA" value={liveEtaMin != null ? `${liveEtaMin} min` : MOCK_JOB.eta} />
+        </div>
+
         <div className="flex items-center justify-between text-xs text-neutral-500 mb-4">
           <span className="flex items-center gap-1">
-            <Clock size={13} /> {MOCK_JOB.eta}
+            <Clock size={13} /> {MOCK_JOB.quantity} {MOCK_JOB.produce}
           </span>
-          <span>{MOCK_JOB.quantity} {MOCK_JOB.produce}</span>
         </div>
 
         <button
@@ -382,6 +428,15 @@ function TripCard({ stage, onScanPickup, onScanDelivery }) {
           {atPickup ? "Scan QR to confirm pickup" : "Scan QR to confirm delivery"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function TelemetryStat({ label, value }) {
+  return (
+    <div className="bg-neutral-50 rounded-lg py-2 px-1 text-center">
+      <p className="text-[9px] uppercase tracking-wide text-neutral-400">{label}</p>
+      <p className="text-xs font-semibold text-neutral-800 mt-0.5">{value}</p>
     </div>
   );
 }
